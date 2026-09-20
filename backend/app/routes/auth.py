@@ -1,10 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from app.database.database import get_db
+from app.database.database import get_db, settings
 from app.models.user import User
-from app.schemas.auth import UserRegister, UserResponse
-from app.utils.security import hash_password
 
 from app.schemas.auth import (
     UserRegister,
@@ -19,6 +17,13 @@ from app.utils.security import (
     create_access_token
 )
 
+from app.services.security_service import (
+    is_ip_blocked,
+    record_login_attempt,
+    get_recent_failed_attempts,
+    block_ip,
+    create_security_event
+)
 
 router = APIRouter(
     prefix="/api/auth",
@@ -79,41 +84,156 @@ def register(
 
     return new_user
 
-
 @router.post(
     "/login",
     response_model=TokenResponse
 )
 def login(
+    request: Request,
     user_data: UserLogin,
     db: Session = Depends(get_db)
 ):
 
-    # Find user
+    # Get client IP address
+    ip_address = request.client.host
+
+    # --------------------------------------------------
+    # 1. Check whether IP is blocked
+    # --------------------------------------------------
+
+    if is_ip_blocked(ip_address, db):
+
+        record_login_attempt(
+            db=db,
+            username=user_data.username,
+            ip_address=ip_address,
+            status="BLOCKED",
+            failure_reason="IP_BLOCKED"
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your IP address is temporarily blocked"
+        )
+
+    # --------------------------------------------------
+    # 2. Find user
+    # --------------------------------------------------
+
     user = (
         db.query(User)
         .filter(User.username == user_data.username)
         .first()
     )
 
-    # User doesn't exist
+    # --------------------------------------------------
+    # 3. User doesn't exist
+    # --------------------------------------------------
+
     if not user:
+
+        record_login_attempt(
+            db=db,
+            username=user_data.username,
+            ip_address=ip_address,
+            status="FAILED",
+            failure_reason="INVALID_CREDENTIALS"
+        )
+
+        failed_attempts = get_recent_failed_attempts(
+            db,
+            ip_address
+        )
+
+        if failed_attempts >= settings.MAX_FAILED_ATTEMPTS:
+
+            block_ip(
+                db=db,
+                ip_address=ip_address,
+                reason="Brute-force attack detected"
+            )
+
+            create_security_event(
+                db=db,
+                event_type="BRUTE_FORCE_DETECTED",
+                ip_address=ip_address,
+                username=user_data.username,
+                description=(
+                    f"{failed_attempts} failed login attempts "
+                    f"within {settings.FAILED_ATTEMPT_WINDOW_SECONDS // 60} minutes"
+                ),
+                severity="HIGH"
+            )
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password"
         )
 
-    # Verify password
+    # --------------------------------------------------
+    # 4. Verify password
+    # --------------------------------------------------
+
     if not verify_password(
         user_data.password,
         user.password_hash
     ):
+
+        record_login_attempt(
+            db=db,
+            username=user_data.username,
+            ip_address=ip_address,
+            status="FAILED",
+            failure_reason="INVALID_CREDENTIALS",
+            user_id=user.id
+        )
+
+        failed_attempts = get_recent_failed_attempts(
+            db,
+            ip_address
+        )
+
+        if failed_attempts >= settings.MAX_FAILED_ATTEMPTS:
+
+            block_ip(
+                db=db,
+                ip_address=ip_address,
+                reason="Brute-force attack detected"
+            )
+
+            create_security_event(
+                db=db,
+                event_type="BRUTE_FORCE_DETECTED",
+                ip_address=ip_address,
+                username=user.username,
+                description=(
+                    f"{failed_attempts} failed login attempts "
+                    f"within {settings.FAILED_ATTEMPT_WINDOW_SECONDS // 60} minutes"
+                ),
+                severity="HIGH"
+            )
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password"
         )
 
-    # Create JWT
+    # --------------------------------------------------
+    # 5. Successful login
+    # --------------------------------------------------
+
+    record_login_attempt(
+        db=db,
+        username=user.username,
+        ip_address=ip_address,
+        status="SUCCESS",
+        user_id=user.id
+    )
+
+    # --------------------------------------------------
+    # 6. Create JWT
+    # --------------------------------------------------
+
     access_token = create_access_token(
         user_id=user.id,
         username=user.username,

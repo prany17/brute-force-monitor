@@ -7,6 +7,10 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     SECRET_KEY: str
 
+    MAX_FAILED_ATTEMPTS: int = 5
+    FAILED_ATTEMPT_WINDOW_SECONDS: int = 300
+    BLOCK_DURATION_MINUTES: int = 15
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore"
