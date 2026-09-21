@@ -6,12 +6,12 @@ import {
   XCircle,
   Ban,
   AlertTriangle,
-  LogOut,
   RefreshCw,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import api from "../services/api";
 import SecurityCharts from "../components/SecurityCharts";
+import Sidebar from "../components/Sidebar";
 
 function Dashboard() {
   const navigate = useNavigate();
@@ -21,57 +21,69 @@ function Dashboard() {
   const [blockedIPs, setBlockedIPs] = useState([]);
   const [attempts, setAttempts] = useState([]);
 
+  const [activeSection, setActiveSection] = useState("overview");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState("ALL");
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-const fetchDashboardData = useCallback(async () => {
-  try {
-    setLoading(true);
-    setError("");
+  // ================= FETCH DASHBOARD DATA =================
 
-    const [
-      statsResponse,
-      eventsResponse,
-      blockedResponse,
-      attemptsResponse,
-    ] = await Promise.all([
-      api.get("/api/dashboard/stats"),
-      api.get("/api/dashboard/events"),
-      api.get("/api/dashboard/blocked-ips"),
-      api.get("/api/dashboard/attempts"),
-    ]);
+  const fetchDashboardData = useCallback(async ( showLoading = true) => {
+    try {
+      if(showLoading){
+        setLoading(true);
+      }
+      setError("");
 
-    setStats(statsResponse.data);
-    setEvents(eventsResponse.data);
-    setBlockedIPs(blockedResponse.data);
-    setAttempts(attemptsResponse.data);
-  } catch (err) {
-    console.error(err);
+      const [
+        statsResponse,
+        eventsResponse,
+        blockedResponse,
+        attemptsResponse,
+      ] = await Promise.all([
+        api.get("/api/dashboard/stats"),
+        api.get("/api/dashboard/events"),
+        api.get("/api/dashboard/blocked-ips"),
+        api.get("/api/dashboard/attempts"),
+      ]);
 
-    if (err.response?.status === 401) {
-      localStorage.removeItem("access_token");
-      navigate("/login");
-      return;
+      setStats(statsResponse.data);
+      setEvents(eventsResponse.data);
+      setBlockedIPs(blockedResponse.data);
+      setAttempts(attemptsResponse.data);
+    } catch (err) {
+      console.error(err);
+
+      if (err.response?.status === 401) {
+        localStorage.removeItem("access_token");
+        navigate("/login");
+        return;
+      }
+
+      if (err.response?.status === 403) {
+        setError(
+          "You do not have permission to access the security dashboard."
+        );
+        return;
+      }
+
+      setError("Unable to load dashboard data.");
+    } finally {
+      if(showLoading){
+        setLoading(false);
+      }
     }
+  }, [navigate]);
 
-    if (err.response?.status === 403) {
-      setError(
-        "You do not have permission to access the security dashboard."
-      );
-      return;
-    }
+  // ================= AUTOMATIC REFRESH =================
 
-    setError("Unable to load dashboard data.");
-  } finally {
-    setLoading(false);
-  }
-}, [navigate]);
-
-useEffect(() => {
+ useEffect(() => {
   fetchDashboardData();
 
   const intervalId = setInterval(() => {
-    fetchDashboardData();
+    fetchDashboardData(false);
   }, 10000);
 
   return () => {
@@ -79,10 +91,29 @@ useEffect(() => {
   };
 }, [fetchDashboardData]);
 
+  // ================= LOGOUT =================
+
   const handleLogout = () => {
     localStorage.removeItem("access_token");
     navigate("/login");
   };
+
+  // ================= SIDEBAR NAVIGATION =================
+
+  const handleNavigation = (section) => {
+    setActiveSection(section);
+
+    const element = document.getElementById(section);
+
+    if (element) {
+      element.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }
+  };
+
+  // ================= HELPERS =================
 
   const formatDate = (timestamp) => {
     if (!timestamp) {
@@ -120,6 +151,22 @@ useEffect(() => {
     return "text-blue-400 bg-blue-400/10";
   };
 
+  const filteredAttempts = attempts.filter((attempt) => {
+  const search = searchTerm.toLowerCase();
+
+  const matchesSearch =
+    attempt.username?.toLowerCase().includes(search) ||
+    attempt.ip_address?.toLowerCase().includes(search);
+
+  const matchesStatus =
+    statusFilter === "ALL" ||
+    attempt.status === statusFilter;
+
+  return matchesSearch && matchesStatus;
+});
+
+  // ================= LOADING =================
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
@@ -133,6 +180,8 @@ useEffect(() => {
       </div>
     );
   }
+
+  // ================= ERROR =================
 
   if (error) {
     return (
@@ -159,430 +208,519 @@ useEffect(() => {
     );
   }
 
+  // ================= DASHBOARD =================
+
   return (
     <div className="min-h-screen bg-slate-950 text-white">
 
-      {/* ================= HEADER ================= */}
+      {/* ================= SIDEBAR ================= */}
 
-      <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur">
-        <div className="max-w-[1600px] mx-auto px-6 py-4 flex items-center justify-between">
+      <Sidebar
+        activeSection={activeSection}
+        onNavigate={handleNavigation}
+        onLogout={handleLogout}
+      />
 
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-600/20 flex items-center justify-center">
-              <Shield className="w-6 h-6 text-blue-400" />
+      {/* ================= MAIN CONTENT ================= */}
+
+      <div className="ml-64">
+
+        {/* ================= HEADER ================= */}
+
+        <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur">
+          <div className="max-w-[1600px] mx-auto px-6 py-4 flex items-center justify-between">
+
+            <div className="flex items-center gap-3">
+
+              <div className="w-10 h-10 rounded-xl bg-blue-600/20 flex items-center justify-center">
+                <Shield className="w-6 h-6 text-blue-400" />
+              </div>
+
+              <div>
+                <h1 className="font-bold text-lg">
+                  Security Monitor
+                </h1>
+
+                <p className="text-xs text-slate-500">
+                  Brute-Force Detection System
+                </p>
+              </div>
+
             </div>
 
-            <div>
-              <h1 className="font-bold text-lg">
-                Security Monitor
-              </h1>
+            <div className="flex items-center gap-4">
 
-              <p className="text-xs text-slate-500">
-                Brute-Force Detection System
-              </p>
-            </div>
-          </div>
+              <div className="hidden sm:block text-right">
+                <p className="text-sm text-white">
+                  Administrator
+                </p>
 
-          <div className="flex items-center gap-4">
+                <p className="text-xs text-emerald-400">
+                  ● System Online
+                </p>
+              </div>
 
-            <div className="hidden sm:block text-right">
-              <p className="text-sm text-white">
-                Administrator
-              </p>
-
-              <p className="text-xs text-emerald-400">
-                ● System Online
-              </p>
             </div>
 
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white transition"
-            >
-              <LogOut className="w-4 h-4" />
-              Logout
-            </button>
-
           </div>
-        </div>
-      </header>
+        </header>
 
-      {/* ================= MAIN ================= */}
+        {/* ================= MAIN ================= */}
 
-      <main className="max-w-[1600px] mx-auto px-6 py-8">
+        <main className="max-w-[1600px] mx-auto px-6 py-8">
 
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+          {/* ================= OVERVIEW ================= */}
 
-          <div>
-            <h2 className="text-2xl font-bold">
-              Security Overview
-            </h2>
-
-            <p className="text-slate-400 mt-1">
-              Monitor authentication activity and security events.
-            </p>
-          </div>
-
-          <button
-            onClick={fetchDashboardData}
-            className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 transition"
+          <div
+            id="overview"
+            className="scroll-mt-6"
           >
-            <RefreshCw className="w-4 h-4" />
-            Refresh
-          </button>
 
-        </div>
-
-        {/* ================= STAT CARDS ================= */}
-
-<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5 mb-8">
-
-          {/* Total Attempts */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
 
               <div>
-                <p className="text-sm text-slate-400">
-                  Total Attempts
-                </p>
+                <h2 className="text-2xl font-bold">
+                  Security Overview
+                </h2>
 
-                <p className="text-3xl font-bold mt-2">
-                  {stats?.total_attempts ?? 0}
+                <p className="text-slate-400 mt-1">
+                  Monitor authentication activity and security events.
                 </p>
               </div>
 
-              <div className="w-11 h-11 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                <Activity className="w-5 h-5 text-blue-400" />
+              <button
+                onClick={fetchDashboardData}
+                className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 transition"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Refresh
+              </button>
+
+            </div>
+
+            {/* ================= STAT CARDS ================= */}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5 mb-8">
+
+              {/* Total Attempts */}
+
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+                <div className="flex items-center justify-between">
+
+                  <div>
+                    <p className="text-sm text-slate-400">
+                      Total Attempts
+                    </p>
+
+                    <p className="text-3xl font-bold mt-2">
+                      {stats?.total_attempts ?? 0}
+                    </p>
+                  </div>
+
+                  <div className="w-11 h-11 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                    <Activity className="w-5 h-5 text-blue-400" />
+                  </div>
+
+                </div>
+              </div>
+
+              {/* Successful Logins */}
+
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+                <div className="flex items-center justify-between">
+
+                  <div>
+                    <p className="text-sm text-slate-400">
+                      Successful Logins
+                    </p>
+
+                    <p className="text-3xl font-bold mt-2">
+                      {stats?.successful_logins ?? 0}
+                    </p>
+                  </div>
+
+                  <div className="w-11 h-11 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                    <CheckCircle className="w-5 h-5 text-emerald-400" />
+                  </div>
+
+                </div>
+              </div>
+
+              {/* Failed Logins */}
+
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+                <div className="flex items-center justify-between">
+
+                  <div>
+                    <p className="text-sm text-slate-400">
+                      Failed Logins
+                    </p>
+
+                    <p className="text-3xl font-bold mt-2">
+                      {stats?.failed_logins ?? 0}
+                    </p>
+                  </div>
+
+                  <div className="w-11 h-11 rounded-lg bg-red-500/10 flex items-center justify-center">
+                    <XCircle className="w-5 h-5 text-red-400" />
+                  </div>
+
+                </div>
+              </div>
+
+              {/* Blocked IPs */}
+
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+                <div className="flex items-center justify-between">
+
+                  <div>
+                    <p className="text-sm text-slate-400">
+                      Blocked IPs
+                    </p>
+
+                    <p className="text-3xl font-bold mt-2">
+                      {stats?.blocked_ips ?? 0}
+                    </p>
+                  </div>
+
+                  <div className="w-11 h-11 rounded-lg bg-orange-500/10 flex items-center justify-center">
+                    <Ban className="w-5 h-5 text-orange-400" />
+                  </div>
+
+                </div>
+              </div>
+
+              {/* Detected Attacks */}
+
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+                <div className="flex items-center justify-between">
+
+                  <div>
+                    <p className="text-sm text-slate-400">
+                      Detected Attacks
+                    </p>
+
+                    <p className="text-3xl font-bold mt-2">
+                      {stats?.detected_attacks ?? 0}
+                    </p>
+                  </div>
+
+                  <div className="w-11 h-11 rounded-lg bg-red-500/10 flex items-center justify-center">
+                    <AlertTriangle className="w-5 h-5 text-red-400" />
+                  </div>
+
+                </div>
               </div>
 
             </div>
+
+            {/* ================= CHARTS ================= */}
+
+            <SecurityCharts attempts={attempts} />
+
           </div>
 
-          {/* Successful Logins */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-            <div className="flex items-center justify-between">
+          {/* ================= SECURITY EVENTS + BLOCKED IPS ================= */}
 
-              <div>
-                <p className="text-sm text-slate-400">
-                  Successful Logins
-                </p>
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8 mt-8">
 
-                <p className="text-3xl font-bold mt-2">
-                  {stats?.successful_logins ?? 0}
-                </p>
+            {/* Security Events */}
+
+            <section
+              id="security-events"
+              className="bg-slate-900 border border-slate-800 rounded-xl scroll-mt-6"
+            >
+
+              <div className="px-6 py-5 border-b border-slate-800 flex items-center justify-between">
+
+                <div>
+                  <h3 className="font-semibold text-lg">
+                    Security Events
+                  </h3>
+
+                  <p className="text-sm text-slate-500">
+                    Recent detected security incidents
+                  </p>
+                </div>
+
+                <AlertTriangle className="w-5 h-5 text-yellow-400" />
+
               </div>
 
-              <div className="w-11 h-11 rounded-lg bg-emerald-500/10 flex items-center justify-center">
-                <CheckCircle className="w-5 h-5 text-emerald-400" />
+              <div className="divide-y divide-slate-800">
+
+                {events.length === 0 ? (
+                  <div className="px-6 py-10 text-center text-slate-500">
+                    No security events detected.
+                  </div>
+                ) : (
+                  events.slice(0, 5).map((event) => (
+                    <div
+                      key={event.id}
+                      className="px-6 py-4 flex items-start justify-between gap-4"
+                    >
+
+                      <div className="min-w-0">
+
+                        <p className="font-medium text-sm">
+                          {event.event_type}
+                        </p>
+
+                        <p className="text-sm text-slate-400 mt-1">
+                          {event.description}
+                        </p>
+
+                        <p className="text-xs text-slate-600 mt-2">
+                          {formatDate(event.timestamp)}
+                        </p>
+
+                      </div>
+
+                      <span
+                        className={`shrink-0 px-2.5 py-1 rounded-full text-xs font-medium ${getSeverityClass(
+                          event.severity
+                        )}`}
+                      >
+                        {event.severity}
+                      </span>
+
+                    </div>
+                  ))
+                )}
+
               </div>
 
-            </div>
-          </div>
+            </section>
 
-          {/* Failed Logins */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-            <div className="flex items-center justify-between">
+            {/* Blocked IPs */}
 
-              <div>
-                <p className="text-sm text-slate-400">
-                  Failed Logins
-                </p>
+            <section
+              id="blocked-ips"
+              className="bg-slate-900 border border-slate-800 rounded-xl scroll-mt-6"
+            >
 
-                <p className="text-3xl font-bold mt-2">
-                  {stats?.failed_logins ?? 0}
-                </p>
-              </div>
+              <div className="px-6 py-5 border-b border-slate-800 flex items-center justify-between">
 
-              <div className="w-11 h-11 rounded-lg bg-red-500/10 flex items-center justify-center">
-                <XCircle className="w-5 h-5 text-red-400" />
-              </div>
+                <div>
+                  <h3 className="font-semibold text-lg">
+                    Blocked IP Addresses
+                  </h3>
 
-            </div>
-          </div>
+                  <p className="text-sm text-slate-500">
+                    Currently active blocks
+                  </p>
+                </div>
 
-          {/* Blocked IPs */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-            <div className="flex items-center justify-between">
-
-              <div>
-                <p className="text-sm text-slate-400">
-                  Blocked IPs
-                </p>
-
-                <p className="text-3xl font-bold mt-2">
-                  {stats?.blocked_ips ?? 0}
-                </p>
-              </div>
-
-              <div className="w-11 h-11 rounded-lg bg-orange-500/10 flex items-center justify-center">
                 <Ban className="w-5 h-5 text-orange-400" />
+
               </div>
 
-            </div>
+              <div className="overflow-x-auto">
+
+                {blockedIPs.length === 0 ? (
+                  <div className="px-6 py-10 text-center text-slate-500">
+                    No IP addresses are currently blocked.
+                  </div>
+                ) : (
+                  <table className="w-full text-sm">
+
+                    <thead>
+                      <tr className="text-left text-slate-500 border-b border-slate-800">
+
+                        <th className="px-6 py-3 font-medium">
+                          IP Address
+                        </th>
+
+                        <th className="px-6 py-3 font-medium">
+                          Reason
+                        </th>
+
+                        <th className="px-6 py-3 font-medium">
+                          Expires
+                        </th>
+
+                      </tr>
+                    </thead>
+
+                    <tbody className="divide-y divide-slate-800">
+
+                      {blockedIPs.slice(0, 5).map((block) => (
+                        <tr key={block.id}>
+
+                          <td className="px-6 py-4 font-mono text-orange-300">
+                            {block.ip_address}
+                          </td>
+
+                          <td className="px-6 py-4 text-slate-400">
+                            {block.reason}
+                          </td>
+
+                          <td className="px-6 py-4 text-slate-400">
+                            {formatDate(block.expires_at)}
+                          </td>
+
+                        </tr>
+                      ))}
+
+                    </tbody>
+
+                  </table>
+                )}
+
+              </div>
+
+            </section>
+
           </div>
 
-          {/* Detected Attacks */}
+          {/* ================= LOGIN ATTEMPTS ================= */}
 
-<div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-  <div className="flex items-center justify-between">
+          {/* ================= LOGIN ATTEMPTS ================= */}
 
-    <div>
-      <p className="text-sm text-slate-400">
-        Detected Attacks
-      </p>
+<section
+  id="login-logs"
+  className="bg-slate-900 border border-slate-800 rounded-xl scroll-mt-6"
+>
+  <div className="px-6 py-5 border-b border-slate-800">
 
-      <p className="text-3xl font-bold mt-2">
-        {stats?.detected_attacks ?? 0}
-      </p>
-    </div>
+    <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
 
-    <div className="w-11 h-11 rounded-lg bg-red-500/10 flex items-center justify-center">
-      <AlertTriangle className="w-5 h-5 text-red-400" />
+      <div>
+        <h3 className="font-semibold text-lg">
+          Recent Login Attempts
+        </h3>
+
+        <p className="text-sm text-slate-500 mt-1">
+          Latest authentication activity
+        </p>
+      </div>
+
+      {/* Filters */}
+
+      <div className="flex flex-col sm:flex-row gap-3">
+
+        {/* Search */}
+
+        <input
+          type="text"
+          placeholder="Search username or IP..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="w-full sm:w-64 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+        />
+
+        {/* Status Filter */}
+
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-sm text-white focus:outline-none focus:border-blue-500"
+        >
+          <option value="ALL">All Status</option>
+          <option value="SUCCESS">Success</option>
+          <option value="FAILED">Failed</option>
+          <option value="BLOCKED">Blocked</option>
+        </select>
+
+      </div>
+
     </div>
 
   </div>
-</div>
 
-        </div>
+  <div className="overflow-x-auto">
 
-        {/* ================= SECOND ROW ================= */}
+    {filteredAttempts.length === 0 ? (
 
-        <SecurityCharts attempts={attempts}/>
+      <div className="px-6 py-10 text-center text-slate-500">
+        No login attempts match your filters.
+      </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
+    ) : (
 
-          {/* Security Events */}
-          <section className="bg-slate-900 border border-slate-800 rounded-xl">
+      <table className="w-full text-sm">
 
-            <div className="px-6 py-5 border-b border-slate-800 flex items-center justify-between">
+        <thead>
+          <tr className="text-left text-slate-500 border-b border-slate-800">
 
-              <div>
-                <h3 className="font-semibold text-lg">
-                  Security Events
-                </h3>
+            <th className="px-6 py-3 font-medium">
+              Username
+            </th>
 
-                <p className="text-sm text-slate-500">
-                  Recent detected security incidents
-                </p>
-              </div>
+            <th className="px-6 py-3 font-medium">
+              IP Address
+            </th>
 
-              <AlertTriangle className="w-5 h-5 text-yellow-400" />
+            <th className="px-6 py-3 font-medium">
+              Status
+            </th>
 
-            </div>
+            <th className="px-6 py-3 font-medium">
+              Reason
+            </th>
 
-            <div className="divide-y divide-slate-800">
+            <th className="px-6 py-3 font-medium">
+              Time
+            </th>
 
-              {events.length === 0 ? (
-                <div className="px-6 py-10 text-center text-slate-500">
-                  No security events detected.
-                </div>
-              ) : (
-                events.slice(0, 5).map((event) => (
-                  <div
-                    key={event.id}
-                    className="px-6 py-4 flex items-start justify-between gap-4"
-                  >
+          </tr>
+        </thead>
 
-                    <div className="min-w-0">
+        <tbody className="divide-y divide-slate-800">
 
-                      <p className="font-medium text-sm">
-                        {event.event_type}
-                      </p>
+          {filteredAttempts.slice(0, 10).map((attempt) => (
 
-                      <p className="text-sm text-slate-400 mt-1">
-                        {event.description}
-                      </p>
+            <tr
+              key={attempt.id}
+              className="hover:bg-slate-800/40 transition"
+            >
 
-                      <p className="text-xs text-slate-600 mt-2">
-                        {formatDate(event.timestamp)}
-                      </p>
+              <td className="px-6 py-4 font-medium">
+                {attempt.username}
+              </td>
 
-                    </div>
+              <td className="px-6 py-4 font-mono text-slate-400">
+                {attempt.ip_address}
+              </td>
 
-                    <span
-                      className={`shrink-0 px-2.5 py-1 rounded-full text-xs font-medium ${getSeverityClass(event.severity)}`}
-                    >
-                      {event.severity}
-                    </span>
+              <td className="px-6 py-4">
 
-                  </div>
-                ))
-              )}
+                <span
+                  className={`px-2.5 py-1 rounded-full text-xs font-medium ${getStatusClass(
+                    attempt.status
+                  )}`}
+                >
+                  {attempt.status}
+                </span>
 
-            </div>
-          </section>
+              </td>
 
-          {/* Blocked IPs */}
-          <section className="bg-slate-900 border border-slate-800 rounded-xl">
+              <td className="px-6 py-4 text-slate-400">
+                {attempt.failure_reason || "-"}
+              </td>
 
-            <div className="px-6 py-5 border-b border-slate-800 flex items-center justify-between">
+              <td className="px-6 py-4 text-slate-500 whitespace-nowrap">
+                {formatDate(attempt.timestamp)}
+              </td>
 
-              <div>
-                <h3 className="font-semibold text-lg">
-                  Blocked IP Addresses
-                </h3>
+            </tr>
 
-                <p className="text-sm text-slate-500">
-                  Currently active blocks
-                </p>
-              </div>
+          ))}
 
-              <Ban className="w-5 h-5 text-orange-400" />
+        </tbody>
 
-            </div>
+      </table>
 
-            <div className="overflow-x-auto">
+    )}
 
-              {blockedIPs.length === 0 ? (
-                <div className="px-6 py-10 text-center text-slate-500">
-                  No IP addresses are currently blocked.
-                </div>
-              ) : (
-                <table className="w-full text-sm">
+  </div>
 
-                  <thead>
-                    <tr className="text-left text-slate-500 border-b border-slate-800">
-                      <th className="px-6 py-3 font-medium">
-                        IP Address
-                      </th>
+</section>
 
-                      <th className="px-6 py-3 font-medium">
-                        Reason
-                      </th>
+        </main>
 
-                      <th className="px-6 py-3 font-medium">
-                        Expires
-                      </th>
-                    </tr>
-                  </thead>
+      </div>
 
-                  <tbody className="divide-y divide-slate-800">
-
-                    {blockedIPs.slice(0, 5).map((block) => (
-                      <tr key={block.id}>
-
-                        <td className="px-6 py-4 font-mono text-orange-300">
-                          {block.ip_address}
-                        </td>
-
-                        <td className="px-6 py-4 text-slate-400">
-                          {block.reason}
-                        </td>
-
-                        <td className="px-6 py-4 text-slate-400">
-                          {formatDate(block.expires_at)}
-                        </td>
-
-                      </tr>
-                    ))}
-
-                  </tbody>
-
-                </table>
-              )}
-
-            </div>
-          </section>
-
-        </div>
-
-        {/* ================= LOGIN ATTEMPTS ================= */}
-
-        <section className="bg-slate-900 border border-slate-800 rounded-xl">
-
-          <div className="px-6 py-5 border-b border-slate-800">
-
-            <h3 className="font-semibold text-lg">
-              Recent Login Attempts
-            </h3>
-
-            <p className="text-sm text-slate-500 mt-1">
-              Latest authentication activity
-            </p>
-
-          </div>
-
-          <div className="overflow-x-auto">
-
-            {attempts.length === 0 ? (
-              <div className="px-6 py-10 text-center text-slate-500">
-                No login attempts recorded.
-              </div>
-            ) : (
-              <table className="w-full text-sm">
-
-                <thead>
-                  <tr className="text-left text-slate-500 border-b border-slate-800">
-
-                    <th className="px-6 py-3 font-medium">
-                      Username
-                    </th>
-
-                    <th className="px-6 py-3 font-medium">
-                      IP Address
-                    </th>
-
-                    <th className="px-6 py-3 font-medium">
-                      Status
-                    </th>
-
-                    <th className="px-6 py-3 font-medium">
-                      Reason
-                    </th>
-
-                    <th className="px-6 py-3 font-medium">
-                      Time
-                    </th>
-
-                  </tr>
-                </thead>
-
-                <tbody className="divide-y divide-slate-800">
-
-                  {attempts.slice(0, 10).map((attempt) => (
-                    <tr
-                      key={attempt.id}
-                      className="hover:bg-slate-800/40 transition"
-                    >
-
-                      <td className="px-6 py-4 font-medium">
-                        {attempt.username}
-                      </td>
-
-                      <td className="px-6 py-4 font-mono text-slate-400">
-                        {attempt.ip_address}
-                      </td>
-
-                      <td className="px-6 py-4">
-
-                        <span
-                          className={`px-2.5 py-1 rounded-full text-xs font-medium ${getStatusClass(attempt.status)}`}
-                        >
-                          {attempt.status}
-                        </span>
-
-                      </td>
-
-                      <td className="px-6 py-4 text-slate-400">
-                        {attempt.failure_reason || "-"}
-                      </td>
-
-                      <td className="px-6 py-4 text-slate-500 whitespace-nowrap">
-                        {formatDate(attempt.timestamp)}
-                      </td>
-
-                    </tr>
-                  ))}
-
-                </tbody>
-
-              </table>
-            )}
-
-          </div>
-        </section>
-
-      </main>
     </div>
   );
 }
