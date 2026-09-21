@@ -12,10 +12,23 @@ from app.models import (
 from app.routes.auth import router as auth_router
 from app.routes.dashboard import router as dashboard_router
 
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI(
     title="Brute Force Detection & Security Monitoring System",
     description="Cybersecurity system for detecting and monitoring brute-force login attacks",
     version="1.0.0"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
