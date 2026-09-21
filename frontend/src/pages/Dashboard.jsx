@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Shield,
   Activity,
@@ -24,50 +24,60 @@ function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const fetchDashboardData = async () => {
-    try {
-      setLoading(true);
-      setError("");
+const fetchDashboardData = useCallback(async () => {
+  try {
+    setLoading(true);
+    setError("");
 
-      const [
-        statsResponse,
-        eventsResponse,
-        blockedResponse,
-        attemptsResponse,
-      ] = await Promise.all([
-        api.get("/api/dashboard/stats"),
-        api.get("/api/dashboard/events"),
-        api.get("/api/dashboard/blocked-ips"),
-        api.get("/api/dashboard/attempts"),
-      ]);
+    const [
+      statsResponse,
+      eventsResponse,
+      blockedResponse,
+      attemptsResponse,
+    ] = await Promise.all([
+      api.get("/api/dashboard/stats"),
+      api.get("/api/dashboard/events"),
+      api.get("/api/dashboard/blocked-ips"),
+      api.get("/api/dashboard/attempts"),
+    ]);
 
-      setStats(statsResponse.data);
-      setEvents(eventsResponse.data);
-      setBlockedIPs(blockedResponse.data);
-      setAttempts(attemptsResponse.data);
-    } catch (err) {
-      console.error(err);
+    setStats(statsResponse.data);
+    setEvents(eventsResponse.data);
+    setBlockedIPs(blockedResponse.data);
+    setAttempts(attemptsResponse.data);
+  } catch (err) {
+    console.error(err);
 
-      if (err.response?.status === 401) {
-        localStorage.removeItem("access_token");
-        navigate("/login");
-        return;
-      }
-
-      if (err.response?.status === 403) {
-        setError("You do not have permission to access the security dashboard.");
-        return;
-      }
-
-      setError("Unable to load dashboard data.");
-    } finally {
-      setLoading(false);
+    if (err.response?.status === 401) {
+      localStorage.removeItem("access_token");
+      navigate("/login");
+      return;
     }
-  };
 
-  useEffect(() => {
+    if (err.response?.status === 403) {
+      setError(
+        "You do not have permission to access the security dashboard."
+      );
+      return;
+    }
+
+    setError("Unable to load dashboard data.");
+  } finally {
+    setLoading(false);
+  }
+}, [navigate]);
+
+useEffect(() => {
+  fetchDashboardData();
+
+  const intervalId = setInterval(() => {
     fetchDashboardData();
-  }, []);
+  }, 10000);
+
+  return () => {
+    clearInterval(intervalId);
+  };
+}, [fetchDashboardData]);
 
   const handleLogout = () => {
     localStorage.removeItem("access_token");
